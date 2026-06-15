@@ -65,7 +65,7 @@
     { id: 'cond3', text: '{condicao3}', x: 648, y: 516, maxWidth: 545,
       maxHeight: 80, align: 'left', weight: 500, size: 28, color: 'textDark', lineHeight: 1.2, minSize: 18 },
     { id: 'cond4', text: '{condicao4}', x: 648, y: 612, maxWidth: 545,
-      maxHeight: 150, align: 'left', weight: 500, size: 24, color: 'textDark', lineHeight: 1.25, minSize: 16 },
+      maxHeight: 150, align: 'left', weight: 500, size: 20, color: 'textDark', lineHeight: 1.25, minSize: 14 },
   ];
 
   // --- Perfil BLUE (1123×793) — coluna de texto começa em x≈590 ---
@@ -79,7 +79,7 @@
     { id: 'cond3', text: '{condicao3}', x: 590, y: 560, maxWidth: 495,
       maxHeight: 80, align: 'left', weight: 500, size: 27, color: 'textDark', lineHeight: 1.2, minSize: 18 },
     { id: 'cond4', text: '{condicao4}', x: 590, y: 652, maxWidth: 495,
-      maxHeight: 120, align: 'left', weight: 500, size: 23, color: 'textDark', lineHeight: 1.25, minSize: 16 },
+      maxHeight: 120, align: 'left', weight: 500, size: 19, color: 'textDark', lineHeight: 1.25, minSize: 14 },
   ];
 
   const LAYOUTS = {
