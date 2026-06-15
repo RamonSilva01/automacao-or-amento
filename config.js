@@ -123,10 +123,11 @@
     {
       id: 'contourlineMed', label: 'CONTOURLINE MED', folder: 'CONTOURLINE MED', layout: 'blue',
       equipamentos: [
-        { id: 'hiproMed',        label: 'HIPRO MED',         file: 'HiproMed.jpg' },
-        { id: 'supremePro',      label: 'Supreme Pro',       file: 'SupremePro.jpg' },
-        { id: 'unyquePro',       label: 'Unyque Pro',        file: 'UnyquePro.jpg' },
-        { id: 'unyqueProEnygma', label: 'Unyque Pro + Enygma', file: 'UnyquePro+Enygma.jpg' },
+        { id: 'hiproMed',         label: 'HIPRO MED',           file: 'HiproMed.jpg' },
+        { id: 'supremePro',       label: 'Supreme Pro',         file: 'SupremePro.jpg' },
+        { id: 'supremeProUnyque', label: 'Supreme Pro + Unyque', file: 'SupremePRO + Unyque.jpg' },
+        { id: 'unyquePro',        label: 'Unyque Pro',          file: 'UnyquePro.jpg' },
+        { id: 'unyqueProEnygma',  label: 'Unyque Pro + Enygma', file: 'UnyquePro+Enygma.jpg' },
       ],
     },
     {
@@ -141,11 +142,12 @@
     {
       id: 'lumenis', label: 'LUMENIS', folder: 'LUMENIS', layout: 'wide',
       equipamentos: [
-        { id: 'trilift',    label: 'triLift',    file: 'Trilift.jpg' },
-        { id: 'folix',      label: 'Folix',      file: 'Folix.jpg' },
-        { id: 'nuera',      label: 'Nuera',      file: 'Nuera.jpg' },
-        { id: 'stellar22',  label: 'Stellar 22', file: 'Stellar 22.jpg' },
-        { id: 'ultrapulse', label: 'UltraPulse', file: 'Ultrapulse.jpg' },
+        { id: 'trilift',          label: 'triLift',             file: 'Trilift.jpg' },
+        { id: 'folix',            label: 'Folix',               file: 'Folix.jpg' },
+        { id: 'nuera',            label: 'Nuera',               file: 'Nuera.jpg' },
+        { id: 'stellar22',        label: 'Stellar 22',          file: 'Stellar 22.jpg' },
+        { id: 'stellar22Completo', label: 'Stellar 22 - Completo', file: 'Stellar 22 - Completo.jpg' },
+        { id: 'ultrapulse',       label: 'UltraPulse',          file: 'Ultrapulse.jpg' },
       ],
     },
     {
