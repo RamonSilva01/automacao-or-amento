@@ -176,7 +176,9 @@
         label: e.label,
         emoji: '🔹',
         canvas: L.canvas,
-        frameUrl: 'assets/' + m.folder + '/' + e.file,
+        // Codifica cada segmento: espaços viram %20 e o '+' vira %2B, senão
+        // o servidor interpreta o '+' do nome do arquivo como espaço (404).
+        frameUrl: 'assets/' + encodeURIComponent(m.folder) + '/' + encodeURIComponent(e.file),
         fields: ['condicao1', 'condicao2', 'condicao3', 'condicao4'],
         requires: ['condicao1'],
         requiresPhoto: false,
