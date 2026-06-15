@@ -84,6 +84,52 @@
 
   // Garante (e retorna) o objeto de dados de um equipamento.
   const ensureData = (id) => (state.data[id] || (state.data[id] = blankValues()));
+
+  // ------------------------------------------------------------------
+  // SALVAMENTO AUTOMÁTICO (localStorage) — sobrevive a F5 / fechar a aba.
+  // ------------------------------------------------------------------
+  // Guardamos só os textos por equipamento + a última seleção. Imagens e
+  // zoom NÃO entram (não cabem/não fazem sentido). Tudo em try/catch: se o
+  // localStorage estiver indisponível (modo privado, desativado), o app
+  // continua funcionando, só sem persistir.
+  const STORAGE_KEY = 'contourline:orcamento:v1';
+
+  const saveSession = () => {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({
+        brandId: state.brandId, templateId: state.templateId, data: state.data,
+      }));
+    } catch (_) { /* sem localStorage: ignora silenciosamente */ }
+  };
+  // Salva debounced (não escreve a cada tecla durante a digitação).
+  let saveTimer = null;
+  const scheduleSave = () => { clearTimeout(saveTimer); saveTimer = setTimeout(saveSession, 300); };
+
+  const loadSession = () => {
+    let saved;
+    try { saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null'); }
+    catch (_) { return; }
+    if (!saved || typeof saved !== 'object') return;
+
+    // Restaura só equipamentos que AINDA existem no catálogo, garantindo
+    // todas as chaves (o config.js pode ter mudado entre as sessões).
+    if (saved.data && typeof saved.data === 'object') {
+      Object.keys(saved.data).forEach((id) => {
+        if (!TEMPLATES[id]) return;
+        const v = saved.data[id] || {};
+        state.data[id] = Object.assign(blankValues(), {
+          condicao1: v.condicao1 || '', condicao2: v.condicao2 || '',
+          condicao3: v.condicao3 || '', condicao4: v.condicao4 || '',
+          genero: v.genero || 'neutro', qrcode: !!v.qrcode,
+        });
+      });
+    }
+    // Restaura a última marca/equipamento, se ainda forem válidos.
+    if (saved.brandId && BRANDS.some((b) => b.id === saved.brandId)) state.brandId = saved.brandId;
+    if (saved.templateId && TEMPLATES[saved.templateId]) state.templateId = saved.templateId;
+  };
+
+  loadSession();   // restaura ANTES de apontar values/selecionar a marca inicial
   state.values = state.templateId ? ensureData(state.templateId) : blankValues();
 
   // Há um equipamento válido selecionado?
@@ -615,7 +661,9 @@
 
   // Troca a MARCA: repopula os equipamentos e seleciona o 1º (ou mostra aviso
   // se a marca ainda não tiver equipamentos cadastrados).
-  const selectBrand = async (brandId) => {
+  // preferId: ao restaurar a sessão, mantém o equipamento salvo desta marca
+  // (em vez de cair sempre no primeiro). Ignorado se não pertencer à marca.
+  const selectBrand = async (brandId, preferId = null) => {
     state.brandId = brandId;
     if (brandSelect) brandSelect.value = brandId;
     buildTemplateSelect();
@@ -629,8 +677,11 @@
       state.templateId = null;
       state.values = blankValues();
       showEmptyBrandUI();
+      saveSession();
     } else {
-      await selectTemplate(temps[0].id);
+      const pick = (preferId && TEMPLATES[preferId] && TEMPLATES[preferId].brand === brandId)
+        ? preferId : temps[0].id;
+      await selectTemplate(pick);
     }
   };
 
@@ -682,6 +733,7 @@
         updateDownloadState();
         refreshSelectMarks();   // marca/desmarca o equipamento no seletor
         renderPdfList();        // atualiza a lista de orçamentos do PDF
+        scheduleSave();         // salvamento automático (debounced)
       });
       dynamicFields.appendChild(wrap);
     });
@@ -731,6 +783,7 @@
         // O gênero pode trocar a ARTE (nascimento). Garante o PNG e re-render.
         ensureFrame(frameUrlFor()).then(renderCanvas);
         renderCanvas();
+        saveSession();
       });
       generoOptions.appendChild(label);
     });
@@ -759,6 +812,7 @@
     updateDownloadState();
     refreshSelectMarks();
     renderPdfList();
+    saveSession();   // lembra a última marca/equipamento selecionados
   };
 
   // ------------------------------------------------------------------
@@ -1033,6 +1087,7 @@
   if (qrToggle) qrToggle.addEventListener('change', (e) => {
     state.values.qrcode = e.target.checked;
     renderCanvas();
+    saveSession();
   });
 
   // ------------------------------------------------------------------
@@ -1043,7 +1098,8 @@
   // Preload de TODAS as artes em paralelo + o QR Code do SDR (se houver).
   Object.values(TEMPLATES).forEach((t) => frameUrlsOf(t).forEach((url) => ensureFrame(url)));
   if (QRCODE) ensureFrame(QRCODE.url).then(renderCanvas);
-  // Seleciona a marca inicial → popula equipamentos, escolhe o 1º e renderiza.
-  selectBrand(state.brandId);
+  // Seleciona a marca inicial → popula equipamentos e renderiza. Restaura o
+  // equipamento salvo na sessão (preferId), ou o 1º da marca se não houver.
+  selectBrand(state.brandId, state.templateId);
   ensureFont();
 })();
