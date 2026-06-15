@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Gerador de Orçamentos · Contourline</title>
+  <meta name="description" content="Ferramenta interna para gerar artes de orçamento dos equipamentos Contourline com condições especiais de promoção." />
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <!-- A fonte é a mesma definida em config.js (BRAND.font). Se trocar lá,
+       troque a família nesta URL do Google Fonts também. -->
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: { sans: ['Poppins', 'ui-sans-serif', 'system-ui', 'sans-serif'] },
+          colors: {
+            brand: {
+              50:  '#eaf3fb', 100: '#cfe3f5', 200: '#9cc6ea', 300: '#5fa3da',
+              400: '#2b80c8', 500: '#0073BC', 600: '#005a98', 700: '#004285',
+              800: '#0a2c5e', 900: '#0a2249',
+            },
+          },
+        },
+      },
+    };
+  </script>
+
+  <style>
+    body { background: #f1f5f9; }
+
+    /* Campos de texto */
+    .field {
+      background: #fff;
+      border: 1px solid #cbd5e1;
+      transition: border-color .15s ease, box-shadow .15s ease;
+    }
+    .field:hover { border-color: #94a3b8; }
+    .field:focus { outline: none; border-color: #0073BC; box-shadow: 0 0 0 3px rgba(0,115,188,.18); }
+
+    /* Caixa de seleção (equipamento) */
+    .select-field {
+      background: #fff; border: 1.5px solid #cbd5e1; border-radius: .75rem;
+      padding: .7rem .9rem; font-weight: 600; font-size: .95rem; color: #1e293b;
+      width: 100%; cursor: pointer; appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+      background-repeat: no-repeat; background-position: right .9rem center; background-size: 1.1rem;
+      transition: border-color .15s ease, box-shadow .15s ease;
+    }
+    .select-field:hover { border-color: #94a3b8; }
+    .select-field:focus { outline: none; border-color: #0073BC; box-shadow: 0 0 0 3px rgba(0,115,188,.18); }
+
+    /* Pills de gênero */
+    .genero-pill {
+      display: inline-flex; align-items: center; justify-content: center;
+      padding: .5rem .9rem; border-radius: 999px; cursor: pointer;
+      border: 1.5px solid #e2e8f0; background: #fff; color: #475569;
+      font-weight: 600; font-size: .85rem; transition: all .15s ease;
+    }
+    .genero-pill:hover { border-color: #94a3b8; }
+    .genero-pill.is-active { border-color: #0073BC; background: #eaf3fb; color: #004285; }
+
+    /* Dropzone */
+    .dropzone {
+      background: #fff; border: 2px dashed #cbd5e1;
+      transition: border-color .15s ease, background .15s ease;
+    }
+    .dropzone:hover { border-color: #94a3b8; background: #f8fafc; }
+    .dropzone.dragover { border-color: #0073BC; background: #eaf3fb; }
+
+    /* Canvas / preview */
+    .canvas-frame {
+      position: relative; cursor: grab; touch-action: none;
+      user-select: none; -webkit-user-select: none;
+      border-radius: 1rem; overflow: hidden;
+      box-shadow: 0 20px 45px -20px rgba(10,44,94,.5);
+      background: #0a2c5e;
+    }
+    .canvas-frame.dragging { cursor: grabbing; }
+    .canvas-frame canvas { display: block; width: 100%; height: auto; }
+
+    /* Slider de zoom */
+    .zoom-slider {
+      -webkit-appearance: none; appearance: none; width: 100%;
+      height: 6px; border-radius: 999px; background: #e2e8f0; outline: none;
+    }
+    .zoom-slider::-webkit-slider-thumb {
+      -webkit-appearance: none; appearance: none; width: 22px; height: 22px;
+      border-radius: 50%; background: #0073BC; border: 3px solid #fff;
+      cursor: pointer; box-shadow: 0 3px 8px rgba(0,0,0,.3);
+    }
+    .zoom-slider::-moz-range-thumb {
+      width: 22px; height: 22px; border-radius: 50%; background: #0073BC;
+      border: 3px solid #fff; cursor: pointer; box-shadow: 0 3px 8px rgba(0,0,0,.3);
+    }
+
+    .btn-primary { background: #0073BC; }
+    .btn-primary:hover { background: #005a98; }
+    .btn-primary:disabled { opacity: .45; cursor: not-allowed; background: #94a3b8; }
+    .btn-ghost { background: #f1f5f9; color: #475569; }
+    .btn-ghost:hover { background: #e2e8f0; }
+  </style>
+</head>
+
+<body class="font-sans text-slate-800 min-h-screen">
+  <div class="mx-auto max-w-6xl px-4 sm:px-6 py-6 sm:py-10">
+
+    <!-- Header -->
+    <header class="flex items-center justify-between mb-8">
+      <div>
+        <h1 class="text-2xl sm:text-3xl font-extrabold text-brand-700">Gerador de Orçamentos</h1>
+        <p class="text-sm text-slate-500 mt-0.5">Contourline — artes de orçamento por equipamento com condições de promoção</p>
+      </div>
+      <span class="hidden sm:inline text-xs text-slate-400 font-medium">Uso interno</span>
+    </header>
+
+    <div class="grid lg:grid-cols-2 gap-6 lg:gap-8 items-start">
+
+      <!-- ============ COLUNA ESQUERDA: CONTROLES ============ -->
+      <section class="bg-white rounded-2xl shadow-sm border border-slate-200 p-5 sm:p-6">
+
+        <!-- Seletor de marca -->
+        <p class="text-sm font-semibold text-slate-700 mb-2">1. Marca</p>
+        <select id="brandSelect" class="select-field mb-4" aria-label="Escolha a marca"></select>
+
+        <!-- Seletor de equipamento (caixa de seleção) -->
+        <p class="text-sm font-semibold text-slate-700 mb-2">2. Equipamento</p>
+        <select id="templateSelect" class="select-field mb-1.5" aria-label="Escolha o equipamento"></select>
+        <p id="noEquipMsg" class="hidden text-xs text-slate-500 italic mb-6">Esta marca ainda não tem equipamentos cadastrados.</p>
+        <div id="equipSpacer" class="mb-6"></div>
+
+        <!-- Campos dinâmicos (condições) -->
+        <p id="fieldsTitle" class="text-sm font-semibold text-slate-700 mb-2">3. Condições da oferta</p>
+        <div id="dynamicFields" class="space-y-3"></div>
+
+        <!-- Gênero -->
+        <div id="generoWrap" class="mt-4 hidden">
+          <label id="generoLabel" class="block text-sm font-medium text-slate-600 mb-1.5">Gênero <span class="text-slate-400 font-normal">(ajusta o texto automaticamente)</span></label>
+          <div id="generoOptions" class="flex flex-wrap gap-2"></div>
+        </div>
+
+        <!-- QR Code do SDR (ativável por equipamento) -->
+        <div id="qrWrap" class="mt-5 pt-4 border-t border-slate-100">
+          <label class="flex items-center gap-2.5 cursor-pointer select-none">
+            <input type="checkbox" id="qrToggle" class="h-4 w-4 accent-[#0073BC] cursor-pointer" />
+            <span class="text-sm font-semibold text-slate-700">Incluir QR Code do SDR</span>
+          </label>
+          <p class="text-xs text-slate-500 mt-1 ml-6.5">Aparece no canto superior direito da arte (e no PDF). Cada equipamento tem seu próprio ajuste.</p>
+        </div>
+
+        <!-- Upload (some em templates sem foto/imagem, ex.: nascimento) -->
+        <div id="uploadSection">
+        <p id="uploadTitle" class="text-sm font-semibold text-slate-700 mt-6 mb-2">3. Foto do colaborador</p>
+        <p id="uploadHint" class="hidden text-xs text-slate-500 -mt-1 mb-2"></p>
+        <div id="dropzone" class="dropzone rounded-xl cursor-pointer p-6 text-center" role="button" tabindex="0"
+             aria-label="Área para enviar a foto. Clique ou arraste uma imagem.">
+          <div id="dropzoneIdle">
+            <div class="mx-auto h-12 w-12 rounded-full bg-brand-50 flex items-center justify-center mb-2">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#0073BC" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-6 w-6"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            </div>
+            <p class="font-medium text-slate-700 text-sm">Arraste a foto aqui</p>
+            <p class="text-xs text-slate-500 mt-0.5">ou <span class="text-brand-500 underline">clique para selecionar</span></p>
+            <p class="text-[11px] text-slate-400 mt-2">PNG, JPG ou WEBP · até 10 MB</p>
+          </div>
+          <div id="dropzonePreview" class="hidden items-center gap-3 text-left">
+            <img id="previewThumb" alt="" class="h-12 w-12 rounded-lg object-cover border border-slate-200 shrink-0" />
+            <div class="min-w-0 flex-1">
+              <p id="previewName" class="text-sm text-slate-700 truncate"></p>
+              <p class="text-xs text-slate-400 mt-0.5">Foto carregada</p>
+            </div>
+            <button type="button" id="clearPhoto" class="text-xs text-slate-500 hover:text-slate-800 underline shrink-0">Trocar</button>
+          </div>
+        </div>
+        <input id="fileInput" type="file" accept="image/png,image/jpeg,image/webp" class="hidden" />
+        <p id="fileError" class="hidden mt-2 text-sm text-red-500"></p>
+
+        <!-- Controles de ajuste (zoom) -->
+        <div id="adjustControls" class="hidden mt-5 pt-5 border-t border-slate-100">
+          <label class="block text-sm font-medium text-slate-600 mb-2">Ajuste da foto <span class="text-slate-400 font-normal">· arraste no preview e use o zoom</span></label>
+          <div class="flex items-center gap-3">
+            <button id="zoomOutBtn" type="button" class="btn-ghost h-9 w-9 rounded-full inline-flex items-center justify-center shrink-0" aria-label="Diminuir zoom">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" class="h-4 w-4"><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            </button>
+            <input id="zoomSlider" type="range" min="1" max="3" step="0.01" value="1" class="zoom-slider flex-1" aria-label="Zoom da foto" />
+            <button id="zoomInBtn" type="button" class="btn-ghost h-9 w-9 rounded-full inline-flex items-center justify-center shrink-0" aria-label="Aumentar zoom">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" class="h-4 w-4"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            </button>
+          </div>
+          <div class="mt-2 text-center">
+            <button id="centerBtn" type="button" class="text-xs text-slate-500 hover:text-slate-800 underline">Centralizar foto</button>
+          </div>
+        </div>
+        </div><!-- /uploadSection -->
+      </section>
+
+      <!-- ============ COLUNA DIREITA: PREVIEW ============ -->
+      <section class="lg:sticky lg:top-6">
+        <p class="text-sm font-semibold text-slate-700 mb-2">Pré-visualização <span class="text-slate-400 font-normal">(é exatamente o que será baixado)</span></p>
+        <div id="canvasFrame" class="canvas-frame mx-auto max-w-xl">
+          <canvas id="canvas" width="1280" height="720"></canvas>
+        </div>
+
+        <button id="downloadBtn" type="button" disabled
+          class="btn-ghost mt-5 w-full rounded-xl px-5 py-3 font-semibold inline-flex items-center justify-center gap-2 transition">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Baixar só este layout (PNG)
+        </button>
+
+        <!-- ====== Montador de PDF (vários equipamentos) ====== -->
+        <div class="mt-5 bg-white rounded-2xl shadow-sm border border-slate-200 p-4 sm:p-5">
+          <p class="text-sm font-semibold text-slate-700">Orçamentos no PDF <span class="text-slate-400 font-normal">(<span id="pdfCount">0</span>)</span></p>
+          <p class="text-xs text-slate-500 mt-1 mb-3">Cada equipamento com a <strong>Condição 1</strong> preenchida entra no PDF. Troque o equipamento no seletor para montar mais orçamentos — cada um guarda suas próprias condições.</p>
+          <div id="pdfList" class="space-y-2"></div>
+          <p id="pdfEmpty" class="text-xs text-slate-400 italic">Nenhum equipamento preenchido ainda.</p>
+          <button id="generatePdfBtn" type="button" disabled
+            class="btn-primary mt-4 w-full rounded-xl px-5 py-3.5 font-semibold text-white inline-flex items-center justify-center gap-2 transition">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
+            Gerar PDF com os orçamentos
+          </button>
+        </div>
+      </section>
+
+    </div>
+
+    <footer class="mt-10 text-center text-xs text-slate-400">© 2026 Contourline · Ferramenta interna comercial</footer>
+  </div>
+
+  <!-- Geração de PDF client-side -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <!-- Config primeiro (define window.APP_CONFIG), depois o app. -->
+  <script src="config.js?v=19"></script>
+  <script src="app.js?v=19"></script>
+</body>
+</html>
