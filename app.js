@@ -1163,20 +1163,73 @@
     .normalize('NFD').replace(/[̀-ͯ]/g, '')
     .toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 
-  // Acha o template cujo rótulo casa com o nome escrito no documento.
-  const findTemplateByName = (name) => {
-    const n = normName(name);
-    if (!n) return null;
-    const list = Object.values(TEMPLATES);
-    let hit = list.find((t) => normName(t.label) === n);              // exato
-    if (hit) return hit;
-    if (n.length >= 3) {                                              // contém
-      hit = list.find((t) => {
-        const tl = normName(t.label);
-        return tl.length >= 3 && (tl.includes(n) || n.includes(tl));
-      });
+  // ----- Casamento TOLERANTE do nome do equipamento -----
+  // Aceita erros de digitação, acentos, espaços, ordem trocada e
+  // palavras a mais/menos (não precisa ser idêntico ao catálogo).
+
+  // Distância de edição (Levenshtein) entre duas strings.
+  const editDistance = (a, b) => {
+    const m = a.length, n = b.length;
+    if (!m) return n;
+    if (!n) return m;
+    const dp = Array.from({ length: n + 1 }, (_, j) => j);
+    for (let i = 1; i <= m; i++) {
+      let prev = dp[0];
+      dp[0] = i;
+      for (let j = 1; j <= n; j++) {
+        const tmp = dp[j];
+        dp[j] = Math.min(dp[j] + 1, dp[j - 1] + 1, prev + (a[i - 1] === b[j - 1] ? 0 : 1));
+        prev = tmp;
+      }
     }
-    return hit || null;
+    return dp[n];
+  };
+
+  // Similaridade 0..1 (1 = idêntico) baseada na distância de edição.
+  const simRatio = (a, b) => {
+    const L = Math.max(a.length, b.length);
+    return L ? 1 - editDistance(a, b) / L : 1;
+  };
+
+  // Nota 0..1 de quão bem o nome lido casa com um rótulo do catálogo.
+  const matchScore = (queryStr, queryToks, label) => {
+    const lab = normName(label);
+    if (!lab) return 0;
+    if (lab === queryStr) return 1;                                   // idêntico
+    let score = simRatio(queryStr, lab);                             // similaridade global
+    // Um contém o outro (ex.: "Supreme Pro" dentro de "Supreme Pro + Unyque").
+    if (queryStr.length >= 3 && (lab.includes(queryStr) || queryStr.includes(lab))) {
+      score = Math.max(score, 0.88);
+    }
+    // Sobreposição de palavras (tolera ordem trocada e palavras a mais).
+    const labToks = lab.split(' ').filter(Boolean);
+    if (labToks.length) {
+      const shared = labToks.filter((lt) =>
+        queryToks.some((qt) => qt === lt || simRatio(qt, lt) >= 0.8)).length;
+      score = Math.max(score, (shared / labToks.length) * 0.92);
+    }
+    return score;
+  };
+
+  const MATCH_THRESHOLD = 0.55;   // abaixo disso, consideramos "não reconhecido"
+
+  // Melhor template para um nome + sua nota (independente do limiar).
+  const bestTemplateFor = (name) => {
+    const q = normName(name);
+    if (!q) return { template: null, score: 0 };
+    const qToks = q.split(' ').filter(Boolean);
+    let best = null, bestScore = -1;
+    Object.values(TEMPLATES).forEach((t) => {
+      const s = matchScore(q, qToks, t.label);
+      if (s > bestScore) { bestScore = s; best = t; }
+    });
+    return { template: best, score: bestScore };
+  };
+
+  // Casa o nome só se passar do limiar de tolerância.
+  const findTemplateByName = (name) => {
+    const { template, score } = bestTemplateFor(name);
+    return score >= MATCH_THRESHOLD ? template : null;
   };
 
   // Dentro de UM bloco, lê "Condição 1:".."Condição 4:" e devolve {condicaoN}.
@@ -1210,20 +1263,25 @@
     });
   };
 
-  // Aplica os blocos lidos ao estado. Retorna o que casou e o que não casou.
+  // Aplica os blocos lidos ao estado. Retorna o que casou, o que não casou
+  // (com sugestão do mais parecido) e blocos ainda com o nome de exemplo.
   const applyImport = (blocks) => {
-    const matched = [], skipped = [];
+    const matched = [], skipped = [], placeholders = [];
     blocks.forEach((b) => {
-      if (!b.name || /\[.*\]/.test(b.name)) return;        // nome em branco / placeholder do modelo
-      const t = findTemplateByName(b.name);
-      if (!t) { skipped.push(b.name); return; }
-      const d = ensureData(t.id);
+      if (!b.name) return;
+      if (/\[.*\]/.test(b.name)) { placeholders.push(b.name); return; }   // exemplo do modelo
+      const { template, score } = bestTemplateFor(b.name);
+      if (!template || score < MATCH_THRESHOLD) {
+        skipped.push({ name: b.name, suggestion: template ? template.label : null });
+        return;
+      }
+      const d = ensureData(template.id);
       ['condicao1', 'condicao2', 'condicao3', 'condicao4'].forEach((k) => {
         if (b.conds[k] != null) d[k] = b.conds[k];
       });
-      matched.push({ id: t.id, label: t.label, brand: t.brand });
+      matched.push({ id: template.id, label: template.label, brand: template.brand });
     });
-    return { matched, skipped };
+    return { matched, skipped, placeholders };
   };
 
   const setImportStatus = (html, kind) => {
@@ -1253,7 +1311,7 @@
       return;
     }
 
-    const { matched, skipped } = applyImport(blocks);
+    const { matched, skipped, placeholders } = applyImport(blocks);
     saveSession();
     refreshSelectMarks();
     renderPdfList();
@@ -1271,8 +1329,15 @@
         + matched.map((x) => escHtml(x.label)).join(', ') + '.'
       : 'Nenhum equipamento do documento foi reconhecido no catálogo.';
     if (skipped.length) {
-      html += `<br><span class="text-amber-600">Não reconhecidos: `
-        + skipped.map(escHtml).join(', ') + `.</span>`;
+      html += '<br><span class="text-amber-600">Não reconhecidos: '
+        + skipped.map((s) => escHtml(s.name)
+            + (s.suggestion ? ` (seria <strong>${escHtml(s.suggestion)}</strong>?)` : '')).join('; ')
+        + '.</span>';
+    }
+    if (placeholders.length) {
+      html += '<br><span class="text-amber-600">Há bloco com o nome de exemplo '
+        + '“[escreva o nome do equipamento]”. Substitua pelo nome real do equipamento '
+        + 'na linha <strong>EQUIPAMENTO:</strong>.</span>';
     }
     setImportStatus(html, matched.length ? 'ok' : 'error');
   };
