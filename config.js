@@ -128,6 +128,7 @@
         { id: 'supremeProUnyque', label: 'Supreme Pro + Unyque', file: 'SupremePRO + Unyque.jpg' },
         { id: 'unyquePro',        label: 'Unyque Pro',          file: 'UnyquePro.jpg' },
         { id: 'unyqueProEnygma',  label: 'Unyque Pro + Enygma', file: 'UnyquePro+Enygma.jpg' },
+        { id: 'focuskinMed',      label: 'Focuskin',            file: 'Focuskin.jpg' },
       ],
     },
     {
