@@ -947,16 +947,31 @@
       row.className = 'flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2';
       const marca = t.brandLabel ? `<span class="text-[11px] text-slate-400">${t.brandLabel}</span>` : '';
       row.innerHTML = `
-        <span class="text-base shrink-0">${t.emoji}</span>
-        <span class="min-w-0 flex-1">
-          <span class="block text-sm text-slate-700 truncate">${t.label}</span>
-          ${marca}
-        </span>
+        <button type="button" data-goto="${id}" title="Abrir este equipamento para editar"
+          class="flex items-center gap-2 min-w-0 flex-1 text-left rounded-md px-1 -mx-1 py-0.5 cursor-pointer hover:bg-slate-100 transition">
+          <span class="text-base shrink-0">${t.emoji}</span>
+          <span class="min-w-0 flex-1">
+            <span class="block text-sm text-slate-700 truncate">${t.label}</span>
+            ${marca}
+          </span>
+        </button>
         <button type="button" data-remove="${id}"
           class="text-xs text-slate-400 hover:text-red-500 underline shrink-0">remover</button>`;
+      row.querySelector('[data-goto]').addEventListener('click', () => goToTemplate(id));
       row.querySelector('[data-remove]').addEventListener('click', () => removeFromPdf(id));
       pdfList.appendChild(row);
     });
+  };
+
+  // Abre um equipamento da lista do PDF para edição: troca marca/equipamento
+  // (se preciso) e rola até os campos de condição, sem caçar no seletor.
+  const goToTemplate = async (id) => {
+    const t = TEMPLATES[id];
+    if (!t) return;
+    if (t.brand !== state.brandId) await selectBrand(t.brand, id);
+    else await selectTemplate(id);
+    const focusEl = $('dynamicFields');
+    if (focusEl && focusEl.scrollIntoView) focusEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
   };
 
   // Remove um equipamento do PDF (limpa as condições dele).
@@ -1224,15 +1239,30 @@
 
   const MATCH_THRESHOLD = 0.55;   // abaixo disso, consideramos "não reconhecido"
 
+  // Casa o nome de uma MARCA (linha "MARCA:") com o catálogo de marcas.
+  const findBrandByName = (name) => {
+    const q = normName(name);
+    if (!q) return null;
+    const qToks = q.split(' ').filter(Boolean);
+    let best = null, bestScore = -1;
+    BRANDS.forEach((b) => {
+      const s = matchScore(q, qToks, b.label);
+      if (s > bestScore) { bestScore = s; best = b; }
+    });
+    return bestScore >= MATCH_THRESHOLD ? best : null;
+  };
+
   // Melhor template para um nome + sua nota (independente do limiar).
-  // Em empate (ex.: dois "Focuskin" em marcas diferentes), prefere o da
-  // marca atualmente selecionada.
-  const bestTemplateFor = (name) => {
+  // Se brandId for informado, restringe a busca àquela marca (desambigua
+  // equipamentos de nome parecido em marcas diferentes, ex.: dois "Focuskin").
+  // Em empate sem marca, prefere o da marca atualmente selecionada.
+  const bestTemplateFor = (name, brandId) => {
     const q = normName(name);
     if (!q) return { template: null, score: 0 };
     const qToks = q.split(' ').filter(Boolean);
     let best = null, bestScore = -1;
     Object.values(TEMPLATES).forEach((t) => {
+      if (brandId && t.brand !== brandId) return;            // restringe à marca informada
       const s = matchScore(q, qToks, t.label);
       const tie = Math.abs(s - bestScore) <= 1e-9;
       if (s > bestScore + 1e-9
@@ -1267,7 +1297,17 @@
     return conds;
   };
 
-  // Quebra o documento por "EQUIPAMENTO:" e lê as condições de cada bloco.
+  // Lê a última linha "MARCA:" dentro de um trecho (a que vale para o
+  // próximo EQUIPAMENTO). Devolve '' se não houver.
+  const brandInRegion = (region) => {
+    const re = /MARCA\s*:\s*(.*)/gi;
+    let m, last = null;
+    while ((m = re.exec(region)) !== null) last = m[1];
+    return last == null ? '' : cleanEquipName(last);
+  };
+
+  // Quebra o documento por "EQUIPAMENTO:" e lê marca + condições de cada bloco.
+  // A "MARCA:" é opcional: documentos antigos sem ela continuam funcionando.
   const parseDocText = (text) => {
     const clean = String(text || '').replace(/\r\n?/g, '\n');
     const re = /EQUIPAMENTO\s*:\s*(.*)/gi;
@@ -1275,8 +1315,13 @@
     let m;
     while ((m = re.exec(clean)) !== null) marks.push({ at: m.index, after: re.lastIndex, name: cleanEquipName(m[1]) });
     return marks.map((mk, i) => {
+      const prevEnd = i > 0 ? marks[i - 1].after : 0;
       const end = (i + 1 < marks.length) ? marks[i + 1].at : clean.length;
-      return { name: mk.name, conds: parseConds(clean.slice(mk.after, end)) };
+      return {
+        brand: brandInRegion(clean.slice(prevEnd, mk.at)),   // MARCA: antes deste EQUIPAMENTO
+        name: mk.name,
+        conds: parseConds(clean.slice(mk.after, end)),
+      };
     });
   };
 
@@ -1286,7 +1331,10 @@
     const matched = [], skipped = [], placeholders = [];
     blocks.forEach((b) => {
       if (isPlaceholderName(b.name)) { placeholders.push(b.name || '(vazio)'); return; }  // exemplo do modelo
-      const { template, score } = bestTemplateFor(b.name);
+      // Se o bloco informou a MARCA e ela for reconhecida, restringe a busca
+      // a essa marca (desambigua nomes iguais em marcas diferentes).
+      const brandHit = (b.brand && !isPlaceholderName(b.brand)) ? findBrandByName(b.brand) : null;
+      const { template, score } = bestTemplateFor(b.name, brandHit ? brandHit.id : null);
       if (!template || score < MATCH_THRESHOLD) {
         skipped.push({ name: b.name, suggestion: template ? template.label : null });
         return;
