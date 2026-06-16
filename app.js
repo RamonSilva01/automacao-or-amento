@@ -944,21 +944,20 @@
     ids.forEach((id) => {
       const t = TEMPLATES[id];
       const row = document.createElement('div');
-      row.className = 'flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2';
+      // A linha INTEIRA é clicável (data-goto). O "remover" é tratado à parte
+      // pela delegação (checada antes), então clicar nele não navega.
+      row.className = 'flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 cursor-pointer hover:bg-slate-100 hover:border-slate-300 transition';
+      row.setAttribute('data-goto', id);
+      row.setAttribute('title', 'Abrir este equipamento para editar');
       const marca = t.brandLabel ? `<span class="text-[11px] text-slate-400">${t.brandLabel}</span>` : '';
       row.innerHTML = `
-        <button type="button" data-goto="${id}" title="Abrir este equipamento para editar"
-          class="flex items-center gap-2 min-w-0 flex-1 text-left rounded-md px-1 -mx-1 py-0.5 cursor-pointer hover:bg-slate-100 transition">
-          <span class="text-base shrink-0">${t.emoji}</span>
-          <span class="min-w-0 flex-1">
-            <span class="block text-sm text-slate-700 truncate">${t.label}</span>
-            ${marca}
-          </span>
-        </button>
+        <span class="text-base shrink-0">${t.emoji}</span>
+        <span class="min-w-0 flex-1">
+          <span class="block text-sm text-slate-700 truncate">${t.label}</span>
+          ${marca}
+        </span>
         <button type="button" data-remove="${id}"
           class="text-xs text-slate-400 hover:text-red-500 underline shrink-0">remover</button>`;
-      row.querySelector('[data-goto]').addEventListener('click', () => goToTemplate(id));
-      row.querySelector('[data-remove]').addEventListener('click', () => removeFromPdf(id));
       pdfList.appendChild(row);
     });
   };
@@ -1280,8 +1279,10 @@
   };
 
   // Dentro de UM bloco, lê "Condição 1:".."Condição 4:" e devolve {condicaoN}.
+  // Os rótulos precisam estar NO INÍCIO DA LINHA (^ multiline): assim, menções
+  // no meio de uma frase (ex.: instruções do modelo) não são confundidas.
   const parseConds = (body) => {
-    const re = /(?:condi[cç][aã]o|cond\.?)\s*0*([1-4])\s*:/gi;
+    const re = /^[^\S\r\n]*(?:condi[cç][aã]o|cond\.?)[^\S\r\n]*0*([1-4])[^\S\r\n]*:/gim;
     const found = [];
     let m;
     while ((m = re.exec(body)) !== null) found.push({ n: +m[1], at: m.index, after: re.lastIndex });
@@ -1300,7 +1301,7 @@
   // Lê a última linha "MARCA:" dentro de um trecho (a que vale para o
   // próximo EQUIPAMENTO). Devolve '' se não houver.
   const brandInRegion = (region) => {
-    const re = /MARCA\s*:\s*(.*)/gi;
+    const re = /^[^\S\r\n]*MARCA[^\S\r\n]*:[^\S\r\n]*(.*)$/gim;
     let m, last = null;
     while ((m = re.exec(region)) !== null) last = m[1];
     return last == null ? '' : cleanEquipName(last);
@@ -1310,7 +1311,7 @@
   // A "MARCA:" é opcional: documentos antigos sem ela continuam funcionando.
   const parseDocText = (text) => {
     const clean = String(text || '').replace(/\r\n?/g, '\n');
-    const re = /EQUIPAMENTO\s*:\s*(.*)/gi;
+    const re = /^[^\S\r\n]*EQUIPAMENTO[^\S\r\n]*:[^\S\r\n]*(.*)$/gim;
     const marks = [];
     let m;
     while ((m = re.exec(clean)) !== null) marks.push({ at: m.index, after: re.lastIndex, name: cleanEquipName(m[1]) });
@@ -1343,7 +1344,7 @@
       ['condicao1', 'condicao2', 'condicao3', 'condicao4'].forEach((k) => {
         if (b.conds[k] != null) d[k] = b.conds[k];
       });
-      matched.push({ id: template.id, label: template.label, brand: template.brand });
+      matched.push({ id: template.id, label: template.label, brand: template.brand, brandLabel: template.brandLabel });
     });
     return { matched, skipped, placeholders };
   };
@@ -1390,7 +1391,8 @@
 
     let html = matched.length
       ? `<strong>${matched.length}</strong> equipamento(s) preenchido(s): `
-        + matched.map((x) => escHtml(x.label)).join(', ') + '.'
+        + matched.map((x) => escHtml(x.label)
+            + (x.brandLabel ? ` <span class="text-slate-400">(${escHtml(x.brandLabel)})</span>` : '')).join(', ') + '.'
       : 'Nenhum equipamento do documento foi reconhecido no catálogo.';
     if (skipped.length) {
       html += '<br><span class="text-amber-600">Não reconhecidos: '
@@ -1433,6 +1435,17 @@
 
   downloadBtn.addEventListener('click', doDownload);
   generatePdfBtn.addEventListener('click', generatePdf);
+
+  // Lista do PDF: clique delegado (sobrevive às re-renderizações).
+  // "remover" é checado primeiro para não disparar a navegação.
+  if (pdfList) {
+    pdfList.addEventListener('click', (e) => {
+      const rem = e.target.closest('[data-remove]');
+      if (rem) { removeFromPdf(rem.getAttribute('data-remove')); return; }
+      const go = e.target.closest('[data-goto]');
+      if (go) goToTemplate(go.getAttribute('data-goto'));
+    });
+  }
   if (qrToggle) qrToggle.addEventListener('change', (e) => {
     state.values.qrcode = e.target.checked;
     renderCanvas();
