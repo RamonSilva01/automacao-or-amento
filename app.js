@@ -1291,7 +1291,11 @@
       const end = (i + 1 < found.length) ? found[i + 1].at : body.length;
       const val = body.slice(f.after, end)
         .split('\n')
-        .filter((ln) => !/^\s*\(.*\)\s*$/.test(ln))   // descarta linhas-dica entre parênteses
+        // descarta linhas-dica entre parênteses...
+        .filter((ln) => !/^\s*\(.*\)\s*$/.test(ln))
+        // ...e rótulos do PRÓXIMO bloco (MARCA:/EQUIPAMENTO:) que caem na
+        // última condição quando se cola um bloco abaixo do outro.
+        .filter((ln) => !/^[^\S\r\n]*(?:marca|equipamento)[^\S\r\n]*:/i.test(ln))
         .join('\n').trim();
       conds['condicao' + f.n] = val;
     });
