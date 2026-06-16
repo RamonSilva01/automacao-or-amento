@@ -133,6 +133,25 @@
         <p id="noEquipMsg" class="hidden text-xs text-slate-500 italic mb-6">Esta marca ainda não tem equipamentos cadastrados.</p>
         <div id="equipSpacer" class="mb-6"></div>
 
+        <!-- Importar condições de um documento (Word / PDF / texto) -->
+        <div id="importBox" class="mb-6 rounded-xl border border-brand-100 bg-brand-50/50 p-4">
+          <div class="flex items-center justify-between gap-2 mb-1">
+            <p class="text-sm font-semibold text-slate-700">Importar condições de um documento</p>
+            <a id="modelLink" href="MODELO%20-%20Condicoes%20Orcamento%20Contourline.docx" download
+               class="text-xs text-brand-500 underline shrink-0 whitespace-nowrap">baixar modelo</a>
+          </div>
+          <p class="text-xs text-slate-500 mb-3">Word (.docx), texto (.txt) ou PDF. Preenche vários equipamentos de uma vez, casando cada bloco pelo nome em <strong>EQUIPAMENTO:</strong>. O <strong>.docx</strong> é o mais confiável.</p>
+          <div id="docDropzone" class="dropzone rounded-xl cursor-pointer p-4 text-center" role="button" tabindex="0"
+               aria-label="Enviar documento de condições. Clique ou arraste.">
+            <p class="font-medium text-slate-700 text-sm">Arraste o documento aqui</p>
+            <p class="text-xs text-slate-500 mt-0.5">ou <span class="text-brand-500 underline">clique para selecionar</span></p>
+            <p class="text-[11px] text-slate-400 mt-1">.docx · .txt · .pdf</p>
+          </div>
+          <input id="docInput" type="file" class="hidden"
+                 accept=".docx,.txt,.pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/pdf,text/plain" />
+          <div id="importStatus" class="hidden mt-3 text-sm"></div>
+        </div>
+
         <!-- Campos dinâmicos (condições) -->
         <p id="fieldsTitle" class="text-sm font-semibold text-slate-700 mb-2">3. Condições da oferta</p>
         <div id="dynamicFields" class="space-y-3"></div>
@@ -231,8 +250,10 @@
 
   <!-- Geração de PDF client-side -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <!-- Leitura de .docx (descompacta o pacote Word para extrair o texto). -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
   <!-- Config primeiro (define window.APP_CONFIG), depois o app. -->
-  <script src="config.js?v=19"></script>
-  <script src="app.js?v=19"></script>
+  <script src="config.js?v=20"></script>
+  <script src="app.js?v=20"></script>
 </body>
 </html>

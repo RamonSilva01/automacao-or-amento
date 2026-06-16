@@ -42,6 +42,11 @@
   const fileInput      = $('fileInput');
   const fileError      = $('fileError');
 
+  // Importação de condições por documento (Word/PDF/texto).
+  const docDropzone    = $('docDropzone');
+  const docInput       = $('docInput');
+  const importStatus   = $('importStatus');
+
   const canvasFrame    = $('canvasFrame');
   const canvas         = $('canvas');
   const ctx            = canvas.getContext('2d');
@@ -1067,8 +1072,223 @@
   };
 
   // ------------------------------------------------------------------
+  // IMPORTAÇÃO DE CONDIÇÕES (Word .docx / .txt / .pdf)
+  // ------------------------------------------------------------------
+  // Lê um documento, quebra por blocos "EQUIPAMENTO:" e preenche as 4
+  // condições de cada equipamento, casando o nome com o catálogo (config.js).
+
+  // Escapa para uso seguro dentro de innerHTML (nomes vindos do documento).
+  const escHtml = (s) => String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+  // Decodifica as entidades XML básicas do texto extraído do Word.
+  const decodeEntities = (s) => s
+    .replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"').replace(/&apos;/g, "'")
+    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(+n))
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, n) => String.fromCharCode(parseInt(n, 16)))
+    .replace(/&amp;/g, '&');   // por último, para não reprocessar
+
+  // Converte o XML do Word em texto, preservando parágrafos e quebras de linha.
+  const wordXmlToText = (xml) => decodeEntities(
+    xml.replace(/<w:tab[^>]*\/?>/g, '\t')
+       .replace(/<w:br[^>]*\/?>/g, '\n')
+       .replace(/<\/w:p>/g, '\n')          // fim de parágrafo = nova linha
+       .replace(/<[^>]+>/g, '')            // remove o restante das tags
+  );
+
+  const readDocx = async (file) => {
+    if (typeof JSZip === 'undefined') throw new Error('a biblioteca de leitura .docx não carregou (sem internet?)');
+    const zip = await JSZip.loadAsync(await file.arrayBuffer());
+    const entry = zip.file('word/document.xml');
+    if (!entry) throw new Error('arquivo .docx inválido');
+    return wordXmlToText(await entry.async('string'));
+  };
+
+  // pdf.js é pesado: só carrega quando o usuário realmente solta um PDF.
+  let pdfjsPromise = null;
+  const loadPdfJs = () => {
+    if (window.pdfjsLib) return Promise.resolve(window.pdfjsLib);
+    if (pdfjsPromise) return pdfjsPromise;
+    pdfjsPromise = new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+      s.onload = () => {
+        try {
+          window.pdfjsLib.GlobalWorkerOptions.workerSrc =
+            'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+        } catch (_) { /* sem worker: pdf.js usa fallback */ }
+        resolve(window.pdfjsLib);
+      };
+      s.onerror = () => reject(new Error('não foi possível carregar o leitor de PDF'));
+      document.head.appendChild(s);
+    });
+    return pdfjsPromise;
+  };
+
+  const readPdf = async (file) => {
+    const pdfjsLib = await loadPdfJs();
+    const doc = await pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise;
+    let out = '';
+    for (let p = 1; p <= doc.numPages; p++) {
+      const page = await doc.getPage(p);
+      const tc = await page.getTextContent();
+      const lines = [];
+      let line = '', lastY = null;
+      tc.items.forEach((it) => {
+        const y = it.transform[5];
+        if (lastY !== null && Math.abs(y - lastY) > 3) { lines.push(line); line = ''; }
+        line += it.str;
+        lastY = y;
+      });
+      if (line) lines.push(line);
+      out += lines.join('\n') + '\n';
+    }
+    return out;
+  };
+
+  // Decide o leitor pela extensão (com fallback por MIME e, por fim, texto cru).
+  const extractText = async (file) => {
+    const name = (file.name || '').toLowerCase();
+    if (name.endsWith('.docx')) return readDocx(file);
+    if (name.endsWith('.pdf'))  return readPdf(file);
+    if (name.endsWith('.txt'))  return file.text();
+    if ((file.type || '').includes('word')) return readDocx(file);
+    if (file.type === 'application/pdf')     return readPdf(file);
+    return file.text();
+  };
+
+  // Normaliza nomes para casar equipamento (sem acento, minúsculo, só alfanum).
+  const normName = (s) => String(s || '')
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+
+  // Acha o template cujo rótulo casa com o nome escrito no documento.
+  const findTemplateByName = (name) => {
+    const n = normName(name);
+    if (!n) return null;
+    const list = Object.values(TEMPLATES);
+    let hit = list.find((t) => normName(t.label) === n);              // exato
+    if (hit) return hit;
+    if (n.length >= 3) {                                              // contém
+      hit = list.find((t) => {
+        const tl = normName(t.label);
+        return tl.length >= 3 && (tl.includes(n) || n.includes(tl));
+      });
+    }
+    return hit || null;
+  };
+
+  // Dentro de UM bloco, lê "Condição 1:".."Condição 4:" e devolve {condicaoN}.
+  const parseConds = (body) => {
+    const re = /(?:condi[cç][aã]o|cond\.?)\s*0*([1-4])\s*:/gi;
+    const found = [];
+    let m;
+    while ((m = re.exec(body)) !== null) found.push({ n: +m[1], at: m.index, after: re.lastIndex });
+    const conds = {};
+    found.forEach((f, i) => {
+      const end = (i + 1 < found.length) ? found[i + 1].at : body.length;
+      const val = body.slice(f.after, end)
+        .split('\n')
+        .filter((ln) => !/^\s*\(.*\)\s*$/.test(ln))   // descarta linhas-dica entre parênteses
+        .join('\n').trim();
+      conds['condicao' + f.n] = val;
+    });
+    return conds;
+  };
+
+  // Quebra o documento por "EQUIPAMENTO:" e lê as condições de cada bloco.
+  const parseDocText = (text) => {
+    const clean = String(text || '').replace(/\r\n?/g, '\n');
+    const re = /EQUIPAMENTO\s*:\s*(.*)/gi;
+    const marks = [];
+    let m;
+    while ((m = re.exec(clean)) !== null) marks.push({ at: m.index, after: re.lastIndex, name: m[1].trim() });
+    return marks.map((mk, i) => {
+      const end = (i + 1 < marks.length) ? marks[i + 1].at : clean.length;
+      return { name: mk.name, conds: parseConds(clean.slice(mk.after, end)) };
+    });
+  };
+
+  // Aplica os blocos lidos ao estado. Retorna o que casou e o que não casou.
+  const applyImport = (blocks) => {
+    const matched = [], skipped = [];
+    blocks.forEach((b) => {
+      if (!b.name || /\[.*\]/.test(b.name)) return;        // nome em branco / placeholder do modelo
+      const t = findTemplateByName(b.name);
+      if (!t) { skipped.push(b.name); return; }
+      const d = ensureData(t.id);
+      ['condicao1', 'condicao2', 'condicao3', 'condicao4'].forEach((k) => {
+        if (b.conds[k] != null) d[k] = b.conds[k];
+      });
+      matched.push({ id: t.id, label: t.label, brand: t.brand });
+    });
+    return { matched, skipped };
+  };
+
+  const setImportStatus = (html, kind) => {
+    if (!importStatus) return;
+    const color = kind === 'error' ? 'text-red-600'
+      : kind === 'ok' ? 'text-emerald-700' : 'text-slate-600';
+    importStatus.className = 'mt-3 text-sm ' + color;
+    importStatus.innerHTML = html;
+    importStatus.classList.remove('hidden');
+  };
+
+  const acceptDoc = async (file) => {
+    setImportStatus('Lendo o documento…', 'info');
+    let text;
+    try {
+      text = await extractText(file);
+    } catch (e) {
+      setImportStatus('Não consegui ler este arquivo: ' + escHtml(e.message || 'formato não suportado')
+        + '.<br>Dica: salve como <strong>.docx</strong> (Word) para leitura mais confiável.', 'error');
+      return;
+    }
+
+    const blocks = parseDocText(text);
+    if (!blocks.length) {
+      setImportStatus('Não encontrei nenhum bloco <strong>EQUIPAMENTO:</strong> no documento. '
+        + 'Use o modelo pelo link “baixar modelo” acima.', 'error');
+      return;
+    }
+
+    const { matched, skipped } = applyImport(blocks);
+    saveSession();
+    refreshSelectMarks();
+    renderPdfList();
+
+    if (matched.length) {
+      // Mostra o primeiro equipamento preenchido no preview (troca marca+equip).
+      await selectBrand(matched[0].brand, matched[0].id);
+    } else {
+      buildFields();
+      renderCanvas();
+    }
+
+    let html = matched.length
+      ? `<strong>${matched.length}</strong> equipamento(s) preenchido(s): `
+        + matched.map((x) => escHtml(x.label)).join(', ') + '.'
+      : 'Nenhum equipamento do documento foi reconhecido no catálogo.';
+    if (skipped.length) {
+      html += `<br><span class="text-amber-600">Não reconhecidos: `
+        + skipped.map(escHtml).join(', ') + `.</span>`;
+    }
+    setImportStatus(html, matched.length ? 'ok' : 'error');
+  };
+
+  // ------------------------------------------------------------------
   // WIRING
   // ------------------------------------------------------------------
+  if (docDropzone && docInput) {
+    docDropzone.addEventListener('click', () => docInput.click());
+    docDropzone.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); docInput.click(); } });
+    ['dragenter', 'dragover'].forEach((evt) => docDropzone.addEventListener(evt, (e) => { e.preventDefault(); e.stopPropagation(); docDropzone.classList.add('dragover'); }));
+    ['dragleave', 'drop'].forEach((evt) => docDropzone.addEventListener(evt, (e) => { e.preventDefault(); e.stopPropagation(); docDropzone.classList.remove('dragover'); }));
+    docDropzone.addEventListener('drop', (e) => { const f = e.dataTransfer?.files?.[0]; if (f) acceptDoc(f); });
+    docInput.addEventListener('change', (e) => { const f = e.target.files?.[0]; if (f) acceptDoc(f); docInput.value = ''; });
+  }
+
   dropzone.addEventListener('click', (e) => { if (e.target.closest('#clearPhoto')) return; fileInput.click(); });
   dropzone.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileInput.click(); } });
   ['dragenter', 'dragover'].forEach((evt) => dropzone.addEventListener(evt, (e) => { e.preventDefault(); e.stopPropagation(); dropzone.classList.add('dragover'); }));
