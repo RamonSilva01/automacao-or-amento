@@ -1163,6 +1163,17 @@
     .normalize('NFD').replace(/[̀-ͯ]/g, '')
     .toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 
+  // Remove colchetes/aspas que o usuário possa ter deixado em volta do nome
+  // (ex.: "[Hipro]" -> "Hipro") e normaliza espaços.
+  const cleanEquipName = (s) => String(s || '')
+    .replace(/[\[\]<>"'`]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  // Bloco ainda com o texto de exemplo do modelo (não preenchido)?
+  const isPlaceholderName = (s) =>
+    !s || /escreva|substitua|nome do equipament/i.test(s);
+
   // ----- Casamento TOLERANTE do nome do equipamento -----
   // Aceita erros de digitação, acentos, espaços, ordem trocada e
   // palavras a mais/menos (não precisa ser idêntico ao catálogo).
@@ -1214,6 +1225,8 @@
   const MATCH_THRESHOLD = 0.55;   // abaixo disso, consideramos "não reconhecido"
 
   // Melhor template para um nome + sua nota (independente do limiar).
+  // Em empate (ex.: dois "Focuskin" em marcas diferentes), prefere o da
+  // marca atualmente selecionada.
   const bestTemplateFor = (name) => {
     const q = normName(name);
     if (!q) return { template: null, score: 0 };
@@ -1221,7 +1234,11 @@
     let best = null, bestScore = -1;
     Object.values(TEMPLATES).forEach((t) => {
       const s = matchScore(q, qToks, t.label);
-      if (s > bestScore) { bestScore = s; best = t; }
+      const tie = Math.abs(s - bestScore) <= 1e-9;
+      if (s > bestScore + 1e-9
+          || (tie && best && t.brand === state.brandId && best.brand !== state.brandId)) {
+        bestScore = s; best = t;
+      }
     });
     return { template: best, score: bestScore };
   };
@@ -1256,7 +1273,7 @@
     const re = /EQUIPAMENTO\s*:\s*(.*)/gi;
     const marks = [];
     let m;
-    while ((m = re.exec(clean)) !== null) marks.push({ at: m.index, after: re.lastIndex, name: m[1].trim() });
+    while ((m = re.exec(clean)) !== null) marks.push({ at: m.index, after: re.lastIndex, name: cleanEquipName(m[1]) });
     return marks.map((mk, i) => {
       const end = (i + 1 < marks.length) ? marks[i + 1].at : clean.length;
       return { name: mk.name, conds: parseConds(clean.slice(mk.after, end)) };
@@ -1268,8 +1285,7 @@
   const applyImport = (blocks) => {
     const matched = [], skipped = [], placeholders = [];
     blocks.forEach((b) => {
-      if (!b.name) return;
-      if (/\[.*\]/.test(b.name)) { placeholders.push(b.name); return; }   // exemplo do modelo
+      if (isPlaceholderName(b.name)) { placeholders.push(b.name || '(vazio)'); return; }  // exemplo do modelo
       const { template, score } = bestTemplateFor(b.name);
       if (!template || score < MATCH_THRESHOLD) {
         skipped.push({ name: b.name, suggestion: template ? template.label : null });
